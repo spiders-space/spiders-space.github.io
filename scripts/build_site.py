@@ -269,13 +269,22 @@ def web_svg(cls="web tl"):
             f'aria-hidden="true"><g stroke="currentColor" stroke-width="1" fill="none">{legs}{arcs}</g></svg>')
 
 # ------------------------------------------------------------------ قالب اصلی صفحه
+# ASCII art هدر — هماهنگ با index.html دستی کاربر
 ART = r"""
- ____  ____ ___ ____  _____ ____  ____ __        _______ ____
-/ ___||  _ \_ _|  _ \| ____|  _ \/ ___|\ \      / /___ /| __ )
-\___ \| |_) | || | | |  _| | |_) \___ \ \ \ /\ / /  |_ \|  _ \
- ___) |  __/| || |_| | |___|  _ < ___) | \ V  V /  ___) | |_) |
-|____/|_|  |___|____/|_____|_| \_\____/___\_/\_/  |____/|____/
-                                     |_____|"""
+  _________      .__    .___                     __      _____________.
+ /   _____/_____ |__| __| _/___________  ______ /  \    /  \_____  \_ |__
+ \_____  \\____ \|  |/ __ |/ __ \_  __ \/  ___/ \   \/\/   / _(__  <| __ \
+ /        \  |_> >  / /_/ \  ___/|  | \/\___ \   \        / /       \ \_\ \
+/_______  /   __/|__\____ |\___  >__|  /____  >   \__/\  / /______  /___  /
+        \/|__|           \/    \/           \/         \/         \/    \/"""
+
+# ASCII art فوتر (mini-web) — هماهنگ با index.html دستی کاربر
+MINI_WEB = r"""  
+/ _ \
+\_\(_)/_/
+ _//o\\_ 
+/   \
+  """
 
 def nav_links(rel=""):
     return (f'<a class="mono" href="{rel}feed.xml">RSS</a><span class="sep">·</span>'
@@ -331,9 +340,8 @@ def shell(*, title, desc, path, feed_html, pager="", extra_head="", og_type="web
 <a class="skip mono" href="#feed">skip to feed</a>
 
 <header class="mast">
-  {web_svg("web mastweb")}
-  <pre class="art mono" aria-hidden="true">{ART}</pre>
-  <h1 class="title mono">{esc(CHAN_TITLE)}<span class="caret">▌</span></h1>
+  <pre class="art mono" aria-hidden="true">{ART}
+  </pre>
   <p class="tagline mono">live web archive // synced with <a href="{TG_URL}" target="_blank" rel="noopener">t.me/{esc(chan.get('handle') or 'telegram')}</a></p>
   {subs_html}
   <nav class="nav mono"><a href="{rel or './'}index.html" rel="home">home</a><span class="sep">·</span>{nav}<button id="fxtoggle" class="ghost mono" type="button" title="toggle visual effects">fx</button></nav>
@@ -352,13 +360,9 @@ def shell(*, title, desc, path, feed_html, pager="", extra_head="", og_type="web
 </main>
 
 <footer class="foot">
-  <pre class="mini-web mono" aria-hidden="true">      \\  |  /
-    \\  \\ | /  /
-     \\  \\|/  /
-  -----( O )-----
-     /  /|\\  \\
-    /  / | \\  \\
-      /  |  \\</pre>
+  <pre class="mini-web mono" aria-hidden="true">{MINI_WEB}
+  </pre>
+  <h2 class="title mono">{esc(CHAN_TITLE)}<span class="caret">▌</span></h2>
   <p class="mono">spiders_w3b // static web // no cookies · no trackers · no js ads</p>
   <p class="mono dim">last update: {NOW} — woven by github actions 🕷</p>
   <nav class="mono">{nav}</nav>
