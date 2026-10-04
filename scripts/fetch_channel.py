@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """
-fetch_channel.py — آرشیو کانال تلگرام عمومی از طریق نسخهٔ وب (t.me/s/<channel>)
+fetch_channel.py — همگام‌سازی آرشیو کانال تلگرام عمومی از طریق نسخهٔ وب
+                  (t.me/s/<channel>)
 
 خروجی:
   data/posts.json    → همهٔ پست‌ها (جدید→قدیم)
   data/channel.json  → متادیتای کانال (نام، توضیح، آواتار)
   media/             → مدیاهای دانلودشده (عکس، ویدیو، صوت، فایل)
 
-به‌روزرسانی افزایشی است: فقط تا جایی برمی‌گردد که پست‌های تکراری ببیند.
+در هر اجرا تاریخچهٔ قابل‌دسترسی کانال کامل پیمایش می‌شود تا پست‌های حذف‌شده هم
+تشخیص داده شوند. فقط پس از پیمایش موفق و کامل، رکوردهای ناپدیدشده حذف می‌شوند؛
+در صورت خطا یا محدود بودن MAX_PAGES، آرشیو قبلی حفظ می‌شود.
 استیکرها و ری‌اکشن‌ها (و پیام‌های سرویسی مثل "Channel created") نادیده گرفته می‌شوند.
 """
 import json, os, re, sys, time
@@ -30,6 +33,7 @@ POSTS_JSON = DATA_DIR / "posts.json"
 CHAN_JSON  = DATA_DIR / "channel.json"
 DATA_DIR.mkdir(exist_ok=True)
 MEDIA_DIR.mkdir(exist_ok=True)
+MEDIA_INDEX = None
 
 S = requests.Session()
 S.headers.update({
@@ -60,6 +64,10 @@ def emoji_to_text(el):
 def inner_html(el) -> str:
     return el.decode_contents().strip() if el else ""
 
+def is_channel_page(soup) -> bool:
+    """رد کردن صفحات خطا/محدودیت که ممکن است با status=200 برگردند."""
+    return bool(soup.select_one(".tgme_channel_info, .tgme_widget_message"))
+
 # ----------------------------------------------------------------------------- دانلود مدیا
 CT_EXT = {
     "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif",
@@ -71,8 +79,22 @@ CT_EXT = {
 
 def download(url: str, stem: str):
     """دانلود به media/ و برگرداندن نام فایل؛ اگر بزرگ‌تر از سقف یا ناموفق → None."""
+    global MEDIA_INDEX
     if not url:
         return None
+    # اسکن کامل تاریخچه در هر اجرا انجام می‌شود؛ فایل‌های قبلی را قبل از
+    # درخواست شبکه پیدا کن تا مدیای قدیمی دوباره دانلود نشود.
+    if MEDIA_INDEX is None:
+        MEDIA_INDEX = {}
+        for candidate in MEDIA_DIR.iterdir():
+            if candidate.is_file() and "." in candidate.name:
+                MEDIA_INDEX[candidate.name.rsplit(".", 1)[0]] = candidate.name
+    cached = MEDIA_INDEX.get(stem)
+    if cached:
+        cached_path = MEDIA_DIR / cached
+        if cached_path.is_file() and cached_path.stat().st_size > 0:
+            return cached
+        MEDIA_INDEX.pop(stem, None)
     try:
         r = S.get(url, timeout=90, stream=True)
     except Exception as e:
@@ -91,6 +113,7 @@ def download(url: str, stem: str):
     name = f"{stem}{ext}"
     path = MEDIA_DIR / name
     if path.exists() and path.stat().st_size > 0:
+        MEDIA_INDEX[stem] = name
         return name  # از قبل داریم
     size = 0
     try:
@@ -103,6 +126,7 @@ def download(url: str, stem: str):
                 f.write(chunk)
     except Exception as e:
         path.unlink(missing_ok=True); log("dl-fail", name, e); return None
+    MEDIA_INDEX[stem] = name
     return name
 
 def media_item(kind, url, stem, thumb_url=None, extra=None):
@@ -282,6 +306,8 @@ def fetch_channel_meta():
     r = S.get(BASE, timeout=30)
     r.raise_for_status()
     soup = BeautifulSoup(r.text, "lxml")
+    if not is_channel_page(soup):
+        raise RuntimeError(f"Telegram returned an unexpected channel page for {CHANNEL}")
     title_el = soup.select_one(".tgme_channel_info_header_title")
     desc_el  = soup.select_one(".tgme_channel_info_description")
     counters = [c.get_text(strip=True) for c in soup.select(".tgme_channel_info_counter")]
@@ -301,6 +327,111 @@ def fetch_channel_meta():
     CHAN_JSON.write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
     return meta
 
+# ----------------------------------------------------------------------------- دریافت تاریخچهٔ کامل کانال
+def scan_channel(existing):
+    """برگرداندن (پست‌های دیده‌شده، پیمایش کامل بود یا نه).
+
+    وجود پیام در خود صفحه معیار حضور آن در کانال است؛ اگر parsing یک پیام
+    قدیمی موقتاً شکست بخورد یا پیام از نوعی باشد که آرشیو نمی‌کند، نسخهٔ قبلی
+    آن نگه داشته می‌شود. این کار مانع حذف اشتباه بر اثر تغییر markup تلگرام است.
+    """
+    found = {}
+    before, pages = None, 0
+
+    while True:
+        url = BASE + (f"?before={before}" if before else "")
+        try:
+            r = S.get(url, timeout=30)
+            r.raise_for_status()
+        except Exception as e:
+            log("page-fail", url, e)
+            return found, False
+
+        soup = BeautifulSoup(r.text, "lxml")
+        if not is_channel_page(soup):
+            log("page-invalid → keep existing archive", url)
+            return found, False
+
+        msgs = [m for m in soup.select(".tgme_widget_message") if m.get("data-post")]
+        if not msgs:
+            log("end of channel history")
+            return found, True
+
+        ids = []
+        skipped_sticker = 0
+        for m in msgs:
+            try:
+                pid = int(m["data-post"].split("/")[-1])
+            except (TypeError, ValueError, IndexError):
+                log("invalid data-post → keep existing archive")
+                return found, False
+            ids.append(pid)
+
+            if m.find(class_=CLS(r"sticker")) and not m.find(class_=CLS(r"message_text")):
+                sticker_only = not any([m.find("video", src=True), m.find("audio", src=True),
+                                        m.find(class_=CLS(r"photo_wrap"))])
+                if sticker_only:
+                    skipped_sticker += 1
+
+            try:
+                post = parse_message(m)
+            except Exception as e:
+                log("parse-fail", pid, e)
+                post = None
+
+            if post:
+                found[pid] = post
+            elif pid in existing:
+                # پیام هنوز در کانال است؛ حتی اگر نوع آن قابل‌آرشیو نباشد،
+                # رکورد قبلی را به‌عنوان محتوای موجود نگه می‌داریم.
+                found[pid] = existing[pid]
+
+        pages += 1
+        log(f"page {pages}: messages {min(ids)}…{max(ids)}  archived={len(found)}  stickers={skipped_sticker}")
+
+        if MAX_PAGES and pages >= MAX_PAGES:
+            log("MAX_PAGES reached → partial scan; existing posts will be preserved")
+            return found, False
+
+        next_before = min(ids)
+        if before is not None and next_before >= before:
+            log("pagination made no progress → keep existing archive")
+            return found, False
+        before = next_before
+        time.sleep(1.0)  # ادب درخواست
+
+
+def remove_deleted_media(deleted_ids, existing, kept_posts):
+    """پاک‌کردن مدیای اختصاصی پست‌های حذف‌شده از آرشیو محلی."""
+    if not deleted_ids:
+        return
+
+    kept_refs = set()
+    for post in kept_posts.values():
+        for item in post.get("media", []):
+            for key in ("local", "thumb"):
+                if item.get(key):
+                    kept_refs.add(Path(item[key]).name)
+
+    deleted_refs = set()
+    prefixes = tuple(f"{pid}_" for pid in deleted_ids)
+    for pid in deleted_ids:
+        for item in existing[pid].get("media", []):
+            for key in ("local", "thumb"):
+                if item.get(key):
+                    deleted_refs.add(Path(item[key]).name)
+
+    removed = 0
+    for path in MEDIA_DIR.iterdir():
+        if not path.is_file() or path.name in kept_refs:
+            continue
+        if path.name in deleted_refs or (prefixes and path.name.startswith(prefixes)):
+            path.unlink(missing_ok=True)
+            removed += 1
+    if removed:
+        log(f"removed {removed} orphaned media file(s) for deleted posts")
+
+
 # ----------------------------------------------------------------------------- حلقهٔ اصلی
 def main():
     existing = {p["id"]: p for p in json.loads(POSTS_JSON.read_text(encoding="utf-8"))} \
@@ -310,54 +441,22 @@ def main():
     meta = fetch_channel_meta()
     log("meta:", meta["title"], "|", ", ".join(meta["counters"]) or "-")
 
-    db = dict(existing)
-    before, pages, total_new = None, 0, 0
-    while True:
-        url = BASE + (f"?before={before}" if before else "")
-        try:
-            r = S.get(url, timeout=30)
-            r.raise_for_status()
-        except Exception as e:
-            log("page-fail", url, e); break
-        soup = BeautifulSoup(r.text, "lxml")
-        msgs = [m for m in soup.select(".tgme_widget_message") if m.get("data-post")]
-        if not msgs:
-            log("empty page → stop"); break
-
-        ids = [int(m["data-post"].split("/")[-1]) for m in msgs]
-        new_in_page = 0
-        skipped_sticker = 0
-        for m in msgs:
-            pid = int(m["data-post"].split("/")[-1])
-            if m.find(class_=CLS(r"sticker")) and not m.find(class_=CLS(r"message_text")):
-                sticker_only = not any([m.find("video", src=True), m.find("audio", src=True),
-                                        m.find(class_=CLS(r"photo_wrap"))])
-                if sticker_only and pid not in db:
-                    skipped_sticker += 1
-                    continue
-            try:
-                post = parse_message(m)
-            except Exception as e:
-                log("parse-fail", pid, e); post = None
-            if not post:
-                continue
-            if pid not in db:
-                new_in_page += 1
-            db[pid] = post
-
-        pages += 1
-        total_new += new_in_page
-        log(f"page {pages}: posts {min(ids)}…{max(ids)}  new={new_in_page}  stickers-skipped={skipped_sticker}")
-        if new_in_page == 0:
-            log("overlap reached → stop"); break
-        if MAX_PAGES and pages >= MAX_PAGES:
-            log("MAX_PAGES reached → stop"); break
-        before = min(ids)
-        time.sleep(1.0)  # ادب درخواست
+    scanned, complete = scan_channel(existing)
+    if complete:
+        deleted_ids = set(existing) - set(scanned)
+        if deleted_ids:
+            log(f"reconciled: {len(deleted_ids)} post(s) removed from Telegram")
+            remove_deleted_media(deleted_ids, existing, scanned)
+        db = scanned
+    else:
+        # خطا، pagination نامعتبر یا MAX_PAGES: دادهٔ قبلی را حذف نکن.
+        db = dict(existing)
+        db.update(scanned)
+        log("incomplete scan → existing posts preserved")
 
     posts = sorted(db.values(), key=lambda p: p["id"], reverse=True)
     POSTS_JSON.write_text(json.dumps(posts, ensure_ascii=False, indent=1), encoding="utf-8")
-    log(f"DONE: {len(posts)} posts ({total_new} new)")
+    log(f"DONE: {len(posts)} posts")
 
 if __name__ == "__main__":
     main()
