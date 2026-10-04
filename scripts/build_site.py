@@ -439,13 +439,15 @@ def write(path: Path, content: str):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
 
-def sync_dir(src: Path, dst: Path):
+def sync_dir(src: Path, dst: Path, *, prune=False):
     if not src.exists():
         return
+    source_files = set()
     for f in src.rglob("*"):
         if f.is_dir() or f.name == ".DS_Store":
             continue
         rel = f.relative_to(src)
+        source_files.add(rel)
         to = dst / rel
         to.parent.mkdir(parents=True, exist_ok=True)
         try:
@@ -455,6 +457,17 @@ def sync_dir(src: Path, dst: Path):
         except OSError:
             pass
         shutil.copy2(f, to)
+
+    # media/ آینهٔ آرشیو منبع است؛ مدیایی که از منبع حذف شده نباید در docs بماند.
+    if prune and dst.exists():
+        for f in dst.rglob("*"):
+            if f.is_file() and f.relative_to(dst) not in source_files:
+                f.unlink(missing_ok=True)
+        for d in sorted((p for p in dst.rglob("*") if p.is_dir()), reverse=True):
+            try:
+                d.rmdir()
+            except OSError:
+                pass
 
 def gen_og():
     try:
@@ -499,13 +512,36 @@ def gen_og():
     except Exception as e:
         log("og.png skipped:", e)
 
+def clean_stale_generated_pages(valid_post_ids, total_pages):
+    """حذف خروجی‌های پست/صفحه‌بندی‌ای که دیگر در دیتای فعلی وجود ندارند."""
+    post_root = DOCS / "post"
+    if post_root.exists():
+        for child in post_root.iterdir():
+            if child.is_dir() and child.name.isdigit() and child.name not in valid_post_ids:
+                shutil.rmtree(child)
+
+    valid_pages = {str(i) for i in range(2, total_pages + 1)}
+    page_root = DOCS / "page"
+    if page_root.exists():
+        for child in page_root.iterdir():
+            if child.is_dir() and child.name.isdigit() and child.name not in valid_pages:
+                shutil.rmtree(child)
+
+    data_root = DOCS / "data"
+    if data_root.exists():
+        for path in data_root.glob("page-*.json"):
+            match = re.fullmatch(r"page-(\d+)\.json", path.name)
+            if match and match.group(1) not in valid_pages:
+                path.unlink(missing_ok=True)
+
+
 def build():
     (DOCS / "assets").mkdir(exist_ok=True)
     sync_dir(ROOT / "assets", DOCS / "assets")
-    sync_dir(ROOT / "media", DOCS / "media")
+    sync_dir(ROOT / "media", DOCS / "media", prune=True)
 
-    pages = chunked(posts, PAGE_SIZE)
-    total = max(len(pages), 1)
+    pages = chunked(posts, PAGE_SIZE) or [[]]
+    total = len(pages)
 
     # --- index + page/N ---
     for i, page_posts in enumerate(pages, start=1):
@@ -624,6 +660,7 @@ def build():
     if CFG.get("cname"):
         write(DOCS / "CNAME", CFG["cname"])
 
+    clean_stale_generated_pages({str(pid) for pid in by_id}, total)
     gen_og()
     log(f"DONE: {len(posts)} posts · {total} feed pages · site_url={SID or '(relative)'}")
 
