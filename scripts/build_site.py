@@ -301,6 +301,7 @@ def head(*, title, desc, path, rel="", og_type="website", og_image=None, jsonld=
     return f"""<!DOCTYPE html>
 <html lang="{LANG}" dir="{DIR}">
 <head>
+<meta name="google-site-verification" content="ZhhXRYlMZplya4MJ1f3li6XBfyM0PZ0BOYCtPOLeBCY" />
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark">
