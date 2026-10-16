@@ -1,25 +1,5 @@
 [
  {
-  "id": 6,
-  "url": "https://t.me/spiders_w3b/6",
-  "date": "2026-10-03T23:03:28+00:00",
-  "date_txt": "23:03",
-  "views": "8",
-  "edited": false,
-  "text_html": "<a href=\"https://t.me/spiders_w3b\" onclick=\"return confirm('Open this link?\\n\\n'+this.href);\" rel=\"noopener\" target=\"_blank\">Spider's w3b</a> - <a href=\"http://spiders-space.github.io/\" onclick=\"return confirm('Open this link?\\n\\n'+this.href);\" rel=\"noopener\" target=\"_blank\">Spider's Space</a>",
-  "media": [
-   {
-    "type": "photo",
-    "url": "https://cdn1.telesco.pe/file/Qp0jCHZaIfNWQs1Z6tLcphyENdcMScG3H-477zN3L_pJLiIe4m7OFs7aiC2-gspK7L4o5lFH34O7LRgwNn2VKFqutpe6R092MFOpEinBitTGFwLBNJPyI3j2fLIGa5Th6wKC1qsOzi7pTESIPWzoomq3wW3aQPHr0Bori7HoLBurzd4Ikhrq4GNJnZpqA4yqpuSBCxnW-aNf3mAPy_9z9acHvQL_w0bTb9hKnzDHL4ucKRuCgBf54sXivO4sIuExJoyFJbJkYyHAIlc7AscDcZakmrG1pLPFmg8ve4RGMIhPzhPXEfvpSxx5Lb__sumV-iJabyzWe4DZeXnvDHBkIw.jpg",
-    "local": "media/6_1.jpg"
-   }
-  ],
-  "poll": null,
-  "link_preview": null,
-  "reply": null,
-  "fwd": null
- },
- {
   "id": 5,
   "url": "https://t.me/spiders_w3b/5",
   "date": "2026-10-03T01:43:20+00:00",
